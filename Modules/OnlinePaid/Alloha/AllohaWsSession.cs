@@ -73,9 +73,9 @@ public class AllohaWsSession : IDisposable
             {
                 break;
             }
-            catch (Exception ex)
+            catch
             {
-                Console.WriteLine($"[Alloha WS] Session loop error: {ex.Message}");
+                // reconnect on connection failure
             }
         }
     }
@@ -84,7 +84,6 @@ public class AllohaWsSession : IDisposable
     {
         long ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         string wsEndpoint = $"{_wsUrl}?sid={Uri.EscapeDataString(_sid)}&v=2.1&t={ts}";
-        Console.WriteLine($"[Alloha WS] Connecting to {wsEndpoint}...");
 
         _ws = new ClientWebSocket();
         _ws.Options.SetRequestHeader("Origin", _origin);
@@ -95,7 +94,6 @@ public class AllohaWsSession : IDisposable
         linkedCts.CancelAfter(TimeSpan.FromHours(4));
 
         await _ws.ConnectAsync(new Uri(wsEndpoint), linkedCts.Token);
-        Console.WriteLine("[Alloha WS] Connected successfully!");
 
         // 1. Handshake messages
         long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -147,7 +145,6 @@ public class AllohaWsSession : IDisposable
                         ts = curTs
                     });
                     await SendTextAsync(_ws, playingMsg, heartbeatCts.Token);
-                    Console.WriteLine($"[Alloha WS] Heartbeat 'playing' sent (ts: {curTs})");
                 }
                 catch
                 {
@@ -171,7 +168,6 @@ public class AllohaWsSession : IDisposable
                 if (match.Success)
                 {
                     EdgeHash = match.Groups[1].Value;
-                    Console.WriteLine($"[Alloha WS] Received edge_hash: {EdgeHash}");
                     AllohaSessionManager.SetGlobalEdgeHash(EdgeHash);
                 }
             }
@@ -239,7 +235,6 @@ public static class AllohaSessionManager
 
         var session = _sessions.GetOrAdd(pnk, sid =>
         {
-            Console.WriteLine($"[Alloha WS] Registering telemetry session for sid: {sid[..Math.Min(10, sid.Length)]}...");
             var s = new AllohaWsSession(pnr, sid, origin);
             s.Start();
             return s;
