@@ -282,10 +282,15 @@ public class AllohaController : BaseOnlineController<ModuleConf>
         List<StreamQualityDto> streams = null;
 
         string streamOrigin = string.IsNullOrEmpty(init.linkhost) ? "https://scalp-as.stloadi.live" : init.linkhost.TrimEnd('/');
+        string edgeHash = AllohaGuard.GetLiveToken(streamOrigin) ?? AllohaSessionManager.GetGlobalEdgeHash();
+
         var streamHeaders = HeadersModel.Init(
             ("Origin", streamOrigin),
-            ("Referer", streamOrigin + "/")
+            ("Referer", streamOrigin + "/"),
+            ("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
         );
+        if (!string.IsNullOrEmpty(edgeHash))
+            streamHeaders.Add(new HeadersModel("Accepts-Controls", edgeHash));
 
         foreach (var hlsSource in data.file?.hlsSource ?? new List<HlsSource>())
         {
@@ -381,7 +386,7 @@ public class AllohaController : BaseOnlineController<ModuleConf>
 
         string playerUrl = pUri.ToString();
         var playerHeaders = HeadersModel.Init(
-            ("User-Agent", Http.UserAgent),
+            ("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"),
             ("Referer", $"{linkHost}/")
         );
 
@@ -455,7 +460,7 @@ public class AllohaController : BaseOnlineController<ModuleConf>
         string postUrl = $"{linkHost}/bnsi/movies/{actId}";
 
         var bnsiHeaders = HeadersModel.Init(
-            ("User-Agent", Http.UserAgent),
+            ("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"),
             ("Origin", linkHost),
             ("Referer", playerUrl),
             ("Borth", borth),
@@ -469,7 +474,24 @@ public class AllohaController : BaseOnlineController<ModuleConf>
 
         var bnsiResp = await httpHydra.Post<BnsiResponse>(postUrl, postData, safety: true, addheaders: bnsiHeaders);
         if (bnsiResp?.hlsSource == null || bnsiResp.hlsSource.Count == 0)
+        {
+            string dynamicBorth = await AllohaBorth.ComputeFromHtmlAsync(html, viewporti, linkHost);
+            if (!string.IsNullOrEmpty(dynamicBorth) && dynamicBorth != borth)
+            {
+                bnsiHeaders.RemoveAll(x => x.name == "Borth");
+                bnsiHeaders.Add(new HeadersModel("Borth", dynamicBorth));
+                bnsiResp = await httpHydra.Post<BnsiResponse>(postUrl, postData, safety: true, addheaders: bnsiHeaders);
+            }
+        }
+
+        if (bnsiResp?.hlsSource == null || bnsiResp.hlsSource.Count == 0)
             return null;
+
+        if (!string.IsNullOrEmpty(bnsiResp.pnr) && !string.IsNullOrEmpty(bnsiResp.pnk))
+        {
+            AllohaSessionManager.GetOrCreate(bnsiResp.pnr, bnsiResp.pnk, linkHost);
+        }
+        _ = Task.Run(() => AllohaGuard.ForHost(linkHost).GetTokenAsync());
 
         return new DirectData
         {
